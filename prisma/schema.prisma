@@ -1,0 +1,111 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts  SocialAccount[]
+  posts     Post[]
+  apiKeys   ApiKey[]
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  key       String   @unique // sk_live_...
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  lastUsed  DateTime?
+}
+
+model SocialAccount {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  provider     String   // twitter, facebook, etc.
+  accessToken  String   // Encrypted
+  refreshToken String?  // Encrypted
+  expiresAt    DateTime?
+  platformId   String?  // The platform's user ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([userId, provider])
+}
+
+model Post {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  caption     String?
+  mediaUrl    String?
+  mediaType   MediaType
+  smartRoute  Boolean     @default(true)
+  status      PostStatus  @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  attempts    PostAttempt[]
+  metadata    Json?       // Store analysis data (aspect ratio, duration)
+}
+
+model PostAttempt {
+  id             String        @id @default(uuid())
+  postId         String
+  post           Post          @relation(fields: [postId], references: [id])
+  platform       Platform
+  status         AttemptStatus @default(PENDING)
+  platformPostId String?
+  error          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  
+  @@unique([postId, platform])
+}
+
+enum MediaType {
+  TEXT
+  IMAGE
+  VIDEO
+}
+
+enum PostStatus {
+  PENDING
+  PROCESSING
+  PARTIAL
+  COMPLETED
+  FAILED
+}
+
+enum AttemptStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum Platform {
+  TWITTER
+  FACEBOOK
+  INSTAGRAM
+  LINKEDIN
+  YOUTUBE
+  TIKTOK
+  PINTEREST
+  MASTODON
+  THREADS
+}
