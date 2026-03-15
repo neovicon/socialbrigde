@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Key, Share2, FileText, ExternalLink, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DashboardPage = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+
+    const handleConnectSocial = (provider) => {
+        const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const token = localStorage.getItem('token');
+        if (!token) {
+            toast.error('You must be logged in to connect a social account.');
+            return;
+        }
+        window.location.href = `${base}/auth/${provider}/connect?token=${token}`;
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -21,6 +33,27 @@ const DashboardPage = () => {
             }
         };
         fetchData();
+
+        // Handle OAuth redirect params
+        const params = new URLSearchParams(window.location.search);
+        const connected = params.get('connected');
+        const error = params.get('error');
+        if (connected) {
+            toast.success(`✅ ${connected.charAt(0).toUpperCase() + connected.slice(1)} account connected!`);
+            window.history.replaceState({}, '', '/dashboard');
+            // Re-fetch so the connected account shows up immediately
+            fetchData();
+        } else if (error) {
+            const messages = {
+                facebook_denied: 'Facebook authorisation was cancelled.',
+                twitter_denied: 'Twitter authorisation was cancelled.',
+                missing_token: 'Session expired — please log in again.',
+                invalid_state: 'Invalid OAuth state — please try again.',
+                pkce_expired: 'OAuth session expired — please try again.',
+            };
+            toast.error(messages[error] || `OAuth error: ${error}`);
+            window.history.replaceState({}, '', '/dashboard');
+        }
     }, []);
 
     if (loading) return <div className="container py-24 text-center">Loading Dashboard...</div>;
@@ -32,7 +65,7 @@ const DashboardPage = () => {
                     <h1 className="text-4xl">Dashboard</h1>
                     <p className="text-muted">Welcome back, {user?.name || user?.email}</p>
                 </div>
-                <button className="btn-primary flex items-center gap-1">
+                <button className="btn-primary flex items-center gap-1" onClick={() => navigate('/analyze')}>
                     <Plus size={18} />
                     <span>New Post</span>
                 </button>
@@ -68,8 +101,18 @@ const DashboardPage = () => {
                             <p className="text-muted py-4 text-center italic">No accounts connected yet.</p>
                         )}
                         <div className="flex gap-1 mt-1">
-                            <button className="btn-outline flex-1 py-2 text-sm">Add Twitter</button>
-                            <button className="btn-outline flex-1 py-2 text-sm">Add Facebook</button>
+                            <button
+                                className="btn-outline flex-1 py-2 text-sm"
+                                onClick={() => handleConnectSocial('twitter')}
+                            >
+                                Add Twitter
+                            </button>
+                            <button
+                                className="btn-outline flex-1 py-2 text-sm"
+                                onClick={() => handleConnectSocial('facebook')}
+                            >
+                                Add Facebook
+                            </button>
                         </div>
                     </div>
                 </div>
