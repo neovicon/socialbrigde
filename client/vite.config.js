@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    allowedHosts: ['socialbridge.devsandbox.me'],
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
