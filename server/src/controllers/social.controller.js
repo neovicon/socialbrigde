@@ -8,7 +8,18 @@ import jwt from 'jsonwebtoken';
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
+
+/**
+ * Derive the callback URL dynamically from the live request so that
+ * the same string is used in both the /connect (authorization) step
+ * and the /callback (token exchange) step, regardless of environment.
+ * Falls back to SERVER_URL env var when set (recommended for production).
+ */
+function buildCallbackUrl(req, path) {
+    if (process.env.SERVER_URL) return `${process.env.SERVER_URL}${path}`;
+    const origin = `${req.protocol}://${req.get('host')}`;
+    return `${origin}${path}`;
+}
 
 /** Extract userId from JWT embedded in OAuth `state` param */
 function userIdFromState(state) {
@@ -25,7 +36,6 @@ function userIdFromState(state) {
 const FB_AUTH_URL = 'https://www.facebook.com/v19.0/dialog/oauth';
 const FB_TOKEN_URL = 'https://graph.facebook.com/v19.0/oauth/access_token';
 const FB_ME_URL = 'https://graph.facebook.com/v19.0/me';
-const FB_CALLBACK = `${SERVER_URL}/api/auth/facebook/callback`;
 const FB_SCOPES = ['email', 'public_profile', 'pages_manage_posts', 'pages_read_engagement'].join(',');
 
 /**
@@ -38,9 +48,11 @@ export const facebookConnect = asyncHandler(async (req, res) => {
         return res.redirect(`${CLIENT_URL}/dashboard?error=missing_token`);
     }
 
+    const fbCallback = buildCallbackUrl(req, '/api/auth/facebook/callback');
+
     const params = new URLSearchParams({
         client_id: process.env.FACEBOOK_APP_ID,
-        redirect_uri: FB_CALLBACK,
+        redirect_uri: fbCallback,
         scope: FB_SCOPES,
         state: token,           // JWT travels as state - verified in callback
         response_type: 'code',
@@ -66,12 +78,14 @@ export const facebookCallback = asyncHandler(async (req, res) => {
         return res.redirect(`${CLIENT_URL}/dashboard?error=invalid_state`);
     }
 
+    const fbCallback = buildCallbackUrl(req, '/api/auth/facebook/callback');
+
     // Exchange code for access token
     const tokenRes = await axios.get(FB_TOKEN_URL, {
         params: {
             client_id: process.env.FACEBOOK_APP_ID,
             client_secret: process.env.FACEBOOK_APP_SECRET,
-            redirect_uri: FB_CALLBACK,
+            redirect_uri: fbCallback,
             code,
         },
     });
@@ -110,7 +124,6 @@ export const facebookCallback = asyncHandler(async (req, res) => {
 const TW_AUTH_URL = 'https://twitter.com/i/oauth2/authorize';
 const TW_TOKEN_URL = 'https://api.twitter.com/2/oauth2/token';
 const TW_ME_URL = 'https://api.twitter.com/2/users/me';
-const TW_CALLBACK = `${SERVER_URL}/api/auth/twitter/callback`;
 const TW_SCOPES = 'tweet.read tweet.write users.read offline.access';
 
 /** Generate PKCE code verifier + challenge */
@@ -138,9 +151,10 @@ export const twitterConnect = asyncHandler(async (req, res) => {
     }
 
     const { verifier, challenge } = generatePKCE();
+    const twCallback = buildCallbackUrl(req, '/api/auth/twitter/callback');
 
     // Use JWT as state, store verifier so callback can retrieve it
-    pkceStore.set(token, { verifier, createdAt: Date.now() });
+    pkceStore.set(token, { verifier, createdAt: Date.now(), twCallback });
 
     // Clean up entries older than 10 minutes
     const TEN_MIN = 10 * 60 * 1000;
@@ -151,7 +165,7 @@ export const twitterConnect = asyncHandler(async (req, res) => {
     const params = new URLSearchParams({
         response_type: 'code',
         client_id: process.env.TWITTER_CLIENT_ID,
-        redirect_uri: TW_CALLBACK,
+        redirect_uri: twCallback,
         scope: TW_SCOPES,
         state: token,
         code_challenge: challenge,
@@ -184,6 +198,9 @@ export const twitterCallback = asyncHandler(async (req, res) => {
     }
     pkceStore.delete(state);
 
+    // Use the same callback URL that was stored during /connect
+    const twCallback = pkce.twCallback || buildCallbackUrl(req, '/api/auth/twitter/callback');
+
     // Exchange code + verifier for access token
     const credentials = Buffer.from(
         `${process.env.TWITTER_CLIENT_ID}:${process.env.TWITTER_CLIENT_SECRET}`
@@ -194,7 +211,7 @@ export const twitterCallback = asyncHandler(async (req, res) => {
         new URLSearchParams({
             grant_type: 'authorization_code',
             code,
-            redirect_uri: TW_CALLBACK,
+            redirect_uri: twCallback,
             code_verifier: pkce.verifier,
         }),
         {
